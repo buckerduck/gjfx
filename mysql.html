@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交互式博客数据库浏览器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap');
+        html {
+            scroll-behavior: smooth;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F5F5DC;
+        }
+        h1, h2, h3, h4, .font-serif {
+            font-family: 'Noto Serif SC', serif;
+        }
+        .bg-deep-brown { background-color: #4A2C2A; }
+        .text-deep-brown { color: #4A2C2A; }
+        .border-deep-brown { border-color: #4A2C2A; }
+        .bg-gold { background-color: #DAA520; }
+        .text-gold { color: #DAA520; }
+        .border-gold { border-color: #DAA520; }
+        .bg-beige { background-color: #F5F5DC; }
+        .bg-cream { background-color: #FFF8E7; }
+
+        .sidebar-item {
+            transition: all 0.2s ease-in-out;
+        }
+        .sidebar-item.active, .sidebar-item:hover {
+            background-color: #DAA520;
+            color: white;
+            transform: translateX(5px);
+        }
+        .tab-button.active {
+            border-bottom: 3px solid #DAA520;
+            color: #4A2C2A;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .schema-table tr:hover {
+            background-color: #FFF8E7;
+        }
+        .code-block {
+            background-color: #282c34;
+            color: #abb2bf;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            position: relative;
+        }
+        .code-block .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #454c59;
+            color: #abb2bf;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .code-block:hover .copy-btn {
+            opacity: 1;
+        }
+        .keyword { color: #c678dd; }
+        .type { color: #e5c07b; }
+        .comment { color: #5c6370; font-style: italic; }
+        .string { color: #98c379; }
+        .number { color: #d19a66; }
+        .relation-line {
+            position: relative;
+            padding-left: 20px;
+            border-left: 2px dashed #DAA520;
+        }
+        .relation-line::before {
+            content: '';
+            position: absolute;
+            left: -8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 14px;
+            height: 14px;
+            background-color: #FFF8E7;
+            border: 2px solid #DAA520;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <header class="bg-deep-brown text-gold p-4 shadow-lg sticky top-0 z-40">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-3xl font-bold flex items-center gap-3">
+                <i class="fas fa-database"></i>
+                交互式博客数据库浏览器
+            </h1>
+            <p class="text-sm">一个技术设计文档的可视化探索</p>
+        </div>
+    </header>
+
+    <div class="container mx-auto mt-8">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+            
+            <aside class="md:col-span-1">
+                <div class="bg-white p-4 rounded-xl shadow-lg sticky top-24">
+                    <h2 class="text-xl font-bold text-deep-brown mb-4 border-b pb-2">数据库表</h2>
+                    <nav id="sidebar-nav" class="flex flex-col space-y-2">
+                    </nav>
+                </div>
+            </aside>
+
+            <main id="main-content" class="md:col-span-3">
+                <div class="bg-white p-6 rounded-xl shadow-lg min-h-screen">
+                    <div id="content-placeholder" class="text-center py-20">
+                        <i class="fas fa-arrow-left text-4xl text-gold mb-4"></i>
+                        <h2 class="text-2xl font-bold text-deep-brown">请从左侧选择一个数据表</h2>
+                        <p class="text-gray-600 mt-2">点击表名以查看其详细结构、关系和代码定义。</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <footer class="bg-deep-brown text-gold p-6 text-center mt-12 shadow-inner">
+      <div class="container mx-auto">
+        <p class="text-sm">&copy; 2025 . 版权所有.</p>
+        <p class="text-sm"><a href="https://beian.miit.gov.cn/#/Integrated/index" target="_blank">豫ICP备2025132893号-1</a></p>
+      </div>
+    </footer>
+
+    <script>
+        const schemaData = {
+            tables: [
+                {
+                    name: 'blog_posts',
+                    description: '存储博客文章的核心信息，如标题、内容、作者和分类。这是整个博客系统的中心实体。',
+                    fields: [
+                        { name: 'id', type: 'INT', desc: '主键，自增' },
+                        { name: 'title', type: 'VARCHAR(255)', desc: '文章标题，非空' },
+                        { name: 'content', type: 'TEXT', desc: '文章内容，非空' },
+                        { name: 'category', type: 'ENUM', desc: "分类 ('frontend', 'backend', 'database', 'architecture')，非空" },
+                        { name: 'cover_image', type: 'VARCHAR(255)', desc: '封面图片 URL，可空' },
+                        { name: 'author', type: 'VARCHAR(100)', desc: '作者，非空' },
+                        { name: 'views', type: 'INT', desc: '阅读量，默认 0' },
+                        { name: 'created_at', type: 'TIMESTAMP', desc: '创建时间' },
+                        { name: 'updated_at', type: 'TIMESTAMP', desc: '更新时间' },
+                    ],
+                    indexes: [
+                        { name: 'idx_category_views', desc: '`category` 和 `views` 的复合索引，加速分类筛选和热门排序。' },
+                        { name: 'idx_created_at', desc: '`created_at` 的降序索引，用于按时间倒序获取最新文章。' },
+                        { name: 'fulltext_idx_title_content', desc: '`title` 和 `content` 的全文索引，支持高效的内容搜索。' },
+                    ],
+                    relations: [
+                        { target: 'blog_comments', type: '一对多', desc: '一篇文章可以有多条评论。' },
+                        { target: 'blog_tags', type: '多对多', desc: '通过 `post_tag_relations` 表关联，一篇文章可以有多个标签。' },
+                        { target: 'users', type: '多对一', desc: '一篇文章由一个用户（作者）创建，但本设计中作者为字符串，未直接外键关联。' },
+                    ],
+                    mysql: `CREATE TABLE \`blog_posts\` (
+  \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+  \`title\` VARCHAR(255) NOT NULL,
+  \`content\` TEXT NOT NULL,
+  \`category\` ENUM(...) NOT NULL,
+  \`cover_image\` VARCHAR(255) NULL,
+  \`author\` VARCHAR(100) NOT NULL,
+  \`views\` INT DEFAULT 0,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);`,
+                    sequelize: `module.exports = (sequelize, DataTypes) => {
+  const BlogPost = sequelize.define('BlogPost', {
+    title: { type: DataTypes.STRING, allowNull: false },
+    content: { type: DataTypes.TEXT, allowNull: false },
+    category: { type: DataTypes.ENUM(...), allowNull: false },
+    // ... 其他字段
+  });
+  
+  BlogPost.associate = function(models) {
+    BlogPost.belongsToMany(models.BlogTag, { through: 'PostTagRelation' });
+    BlogPost.hasMany(models.BlogComment);
+  };
+  
+  return BlogPost;
+};`,
+                },
+                {
+                    name: 'blog_tags',
+                    description: '存储所有可用的标签。这允许用户通过标签来发现相关主题的文章。',
+                    fields: [
+                        { name: 'id', type: 'INT', desc: '主键，自增' },
+                        { name: 'name', type: 'VARCHAR(50)', desc: '标签名称，唯一，非空' },
+                        { name: 'created_at', type: 'TIMESTAMP', desc: '创建时间' },
+                        { name: 'updated_at', type: 'TIMESTAMP', desc: '更新时间' },
+                    ],
+                    indexes: [
+                        { name: 'idx_name', desc: '`name` 字段的唯一索引，确保标签不重复并加速查找。' },
+                    ],
+                    relations: [
+                        { target: 'blog_posts', type: '多对多', desc: '通过 `post_tag_relations` 表关联，一个标签可以应用于多篇文章。' },
+                    ],
+                    mysql: `CREATE TABLE \`blog_tags\` (
+  \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+  \`name\` VARCHAR(50) NOT NULL UNIQUE,
+  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);`,
+                    sequelize: `module.exports = (sequelize, DataTypes) => {
+  const BlogTag = sequelize.define('BlogTag', {
+    name: { type: DataTypes.STRING, allowNull: false, unique: true },
+  });
+  
+  BlogTag.associate = function(models) {
+    BlogTag.belongsToMany(models.BlogPost, { through: 'PostTagRelation' });
+  };
+  
+  return BlogTag;
+};`,
+                },
+                {
+                    name: 'post_tag_relations',
+                    description: '这是一个连接表（或称枢轴表），用于实现 `blog_posts` 和 `blog_tags` 之间的多对多关系。',
+                    fields: [
+                        { name: 'post_id', type: 'INT', desc: '外键，关联 `blog_posts.id`' },
+                        { name: 'tag_id', type: 'INT', desc: '外键，关联 `blog_tags.id`' },
+                    ],
+                    indexes: [
+                        { name: 'PRIMARY KEY (post_id, tag_id)', desc: '复合主键，防止同一篇文章和标签重复关联，并为连接查询提供最优性能。' },
+                    ],
+                    relations: [
+                        { target: 'blog_posts', type: '多对一', desc: '关联到唯一的文章记录。' },
+                        { target: 'blog_tags', type: '多对一', desc: '关联到唯一的标签记录。' },
+                    ],
+                    mysql: `CREATE TABLE \`post_tag_relations\` (
+  \`post_id\` INT NOT NULL,
+  \`tag_id\` INT NOT NULL,
+  PRIMARY KEY (\`post_id\`, \`tag_id\`),
+  FOREIGN KEY (\`post_id\`) REFERENCES \`blog_posts\`(\`id\`) ON DELETE CASCADE,
+  FOREIGN KEY (\`tag_id\`) REFERENCES \`blog_tags\`(\`id\`) ON DELETE CASCADE
+);`,
+                    sequelize: `module.exports = (sequelize, DataTypes) => {
+  const PostTagRelation = sequelize.define('PostTagRelation', {
+    postId: { type: DataTypes.INTEGER, primaryKey: true },
+    tagId: { type: DataTypes.INTEGER, primaryKey: true }
+  });
+  return PostTagRelation;
+};`,
+                },
+                {
+                    name: 'blog_comments',
+                    description: '存储用户对文章的评论，支持嵌套回复（通过`parent_id`字段）。',
+                    fields: [
+                        { name: 'id', type: 'INT', desc: '主键，自增' },
+                        { name: 'post_id', type: 'INT', desc: '外键，关联 `blog_posts.id`' },
+                        { name: 'user_id', type: 'VARCHAR(255)', desc: '外键，关联 `users.id`，可空表示匿名' },
+                        { name: 'author', type: 'VARCHAR(100)', desc: '评论者名称，非空' },
+                        { name: 'content', type: 'TEXT', desc: '评论内容，非空' },
+                        { name: 'parent_id', type: 'INT', desc: '父评论ID，用于回复功能，可空' },
+                    ],
+                    indexes: [
+                        { name: 'idx_post_id', desc: '`post_id` 字段索引，用于快速查询某篇文章的所有评论。' },
+                    ],
+                    relations: [
+                        { target: 'blog_posts', type: '多对一', desc: '一条评论属于一篇文章。' },
+                        { target: 'users', type: '多对一', desc: '一条评论属于一个用户（如果非匿名）。' },
+                        { target: 'blog_comments', type: '多对一 (自关联)', desc: '通过 `parent_id` 关联到父评论，形成评论树。' },
+                    ],
+                    mysql: `CREATE TABLE \`blog_comments\` (
+  \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+  \`post_id\` INT NOT NULL,
+  \`user_id\` VARCHAR(255) NULL,
+  \`author\` VARCHAR(100) NOT NULL,
+  \`content\` TEXT NOT NULL,
+  \`parent_id\` INT NULL,
+  FOREIGN KEY (\`post_id\`) REFERENCES \`blog_posts\`(\`id\`) ON DELETE CASCADE,
+  FOREIGN KEY (\`user_id\`) REFERENCES \`users\`(\`id\`) ON DELETE SET NULL
+);`,
+                    sequelize: `module.exports = (sequelize, DataTypes) => {
+  const BlogComment = sequelize.define('BlogComment', { /* ... */ });
+  
+  BlogComment.associate = function(models) {
+    BlogComment.belongsTo(models.BlogPost);
+    BlogComment.belongsTo(models.User);
+    BlogComment.hasMany(models.BlogComment, { as: 'replies', foreignKey: 'parentId' });
+  };
+  
+  return BlogComment;
+};`,
+                },
+                {
+                    name: 'users',
+                    description: '存储平台用户基本信息，用于登录认证和关联内容（如评论）。',
+                    fields: [
+                        { name: 'id', type: 'VARCHAR(255)', desc: '主键，通常由外部认证服务生成' },
+                        { name: 'username', type: 'VARCHAR(100)', desc: '用户名，唯一，非空' },
+                        { name: 'email', type: 'VARCHAR(255)', desc: '邮箱，唯一，非空' },
+                        { name: 'password_hash', type: 'VARCHAR(255)', desc: '密码哈希值，非空' },
+                    ],
+                    indexes: [
+                        { name: 'idx_username', desc: '`username` 唯一索引，用于快速查找和防止重名。' },
+                        { name: 'idx_email', desc: '`email` 唯一索引，用于快速查找和防止重复注册。' },
+                    ],
+                    relations: [
+                        { target: 'blog_comments', type: '一对多', desc: '一个用户可以发表多条评论。' },
+                    ],
+                    mysql: `CREATE TABLE \`users\` (
+  \`id\` VARCHAR(255) PRIMARY KEY,
+  \`username\` VARCHAR(100) NOT NULL UNIQUE,
+  \`email\` VARCHAR(255) NOT NULL UNIQUE,
+  \`password_hash\` VARCHAR(255) NOT NULL
+);`,
+                    sequelize: `module.exports = (sequelize, DataTypes) => {
+  const User = sequelize.define('User', { /* ... */ });
+  
+  User.associate = function(models) {
+    User.hasMany(models.BlogComment);
+  };
+  
+  return User;
+};`,
+                },
+            ]
+        };
+
+        let activeChart = null;
+        
+        function highlightSql(sql) {
+            return sql.replace(/(CREATE TABLE|PRIMARY KEY|FOREIGN KEY|REFERENCES|ON DELETE CASCADE|INT|VARCHAR|TEXT|ENUM|TIMESTAMP|NOT NULL|NULL|DEFAULT|AUTO_INCREMENT|UNIQUE|CURRENT_TIMESTAMP|ON UPDATE)/g, '<span class="keyword">$&</span>')
+                .replace(/`([^`]+)`/g, '<span class="string">`$1`</span>')
+                .replace(/'([^']+)'/g, '<span class="string">\'$1\'</span>')
+                .replace(/(\(|\)|\d+)/g, '<span class="number">$1</span>')
+                .replace(/(--.*|\/\*[\s\S]*?\*\/)/g, '<span class="comment">$1</span>');
+        }
+
+        function highlightJs(js) {
+             return js.replace(/(module.exports|const|let|var|function|return|new)/g, '<span class="keyword">$&</span>')
+                .replace(/(sequelize|DataTypes|define|belongsToMany|hasMany|belongsTo)/g, '<span class="type">$&</span>')
+                .replace(/('[\s\S]*?')/g, '<span class="string">$&</span>')
+                .replace(/(\/\/.*)/g, '<span class="comment">$1</span>');
+        }
+
+        function renderContent(tableName) {
+            const table = schemaData.tables.find(t => t.name === tableName);
+            if (!table) return;
+
+            document.getElementById('content-placeholder').style.display = 'none';
+            const mainContent = document.getElementById('main-content').querySelector('.bg-white');
+
+            let fieldsHtml = table.fields.map(f => `
+                <tr class="border-b border-gray-200">
+                    <td class="p-3 font-mono text-deep-brown">${f.name}</td>
+                    <td class="p-3 font-mono text-gold">${f.type}</td>
+                    <td class="p-3 text-gray-600">${f.desc}</td>
+                </tr>
+            `).join('');
+
+            let indexesHtml = table.indexes.map(i => `
+                <li class="flex items-start gap-3 mb-2">
+                    <i class="fas fa-key text-gold mt-1"></i>
+                    <div>
+                        <p class="font-mono text-deep-brown">${i.name}</p>
+                        <p class="text-sm text-gray-600">${i.desc}</p>
+                    </div>
+                </li>
+            `).join('');
+
+            let relationsHtml = table.relations.map(r => `
+                <div class="relation-line mb-4">
+                    <h4 class="text-md font-bold text-deep-brown">${r.target} <span class="text-sm font-normal text-gold">(${r.type})</span></h4>
+                    <p class="text-sm text-gray-600 pl-5">${r.desc}</p>
+                </div>
+            `).join('');
+            
+            mainContent.innerHTML = `
+                <div class="border-b-2 border-gold pb-4 mb-6">
+                    <h2 class="text-4xl font-bold text-deep-brown">${table.name}</h2>
+                    <p class="text-gray-600 mt-2">${table.description}</p>
+                </div>
+
+                <div class="mb-8">
+                    <div class="flex border-b border-gray-200 mb-4">
+                        <button data-tab="schema" class="tab-button text-lg font-semibold py-2 px-4 text-gray-500 hover:text-deep-brown transition active">结构 & 关系</button>
+                        <button data-tab="code" class="tab-button text-lg font-semibold py-2 px-4 text-gray-500 hover:text-deep-brown transition">代码定义</button>
+                        <button data-tab="query" class="tab-button text-lg font-semibold py-2 px-4 text-gray-500 hover:text-deep-brown transition">查询模拟</button>
+                    </div>
+
+                    <div id="tab-schema" class="tab-content active">
+                        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                            <div class="lg:col-span-3">
+                                <h3 class="text-xl font-bold text-deep-brown mb-3">字段定义</h3>
+                                <div class="overflow-hidden border border-gray-200 rounded-lg">
+                                    <table class="w-full text-sm schema-table">
+                                        <thead class="bg-cream">
+                                            <tr>
+                                                <th class="p-3 text-left">字段名</th>
+                                                <th class="p-3 text-left">类型</th>
+                                                <th class="p-3 text-left">说明</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>${fieldsHtml}</tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="lg:col-span-2">
+                                <h3 class="text-xl font-bold text-deep-brown mb-3">索引</h3>
+                                <ul class="bg-cream p-4 rounded-lg">${indexesHtml}</ul>
+                                <h3 class="text-xl font-bold text-deep-brown mt-6 mb-3">关系</h3>
+                                <div>${relationsHtml}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-code" class="tab-content">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div>
+                                <h3 class="text-xl font-bold text-deep-brown mb-3">MySQL DDL</h3>
+                                <pre class="code-block"><button class="copy-btn" data-code-type="mysql"><i class="far fa-copy"></i></button><code id="mysql-code">${highlightSql(table.mysql)}</code></pre>
+                            </div>
+                            <div>
+                                <h3 class="text-xl font-bold text-deep-brown mb-3">Sequelize Model</h3>
+                                <pre class="code-block"><button class="copy-btn" data-code-type="sequelize"><i class="far fa-copy"></i></button><code id="sequelize-code">${highlightJs(table.sequelize)}</code></pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="tab-query" class="tab-content">
+                        <h3 class="text-xl font-bold text-deep-brown mb-4">交互式查询模拟器</h3>
+                        <p class="text-sm text-gray-600 mb-4">通过调整下方选项，模拟从 <strong class="text-gold">${table.name}</strong> 表中查询数据的场景。这有助于理解索引和表结构如何服务于实际应用需求。</p>
+                        <div class="bg-cream p-4 rounded-lg flex items-center gap-6 mb-4">
+                            <div class="flex-1">
+                                <label class="block text-sm font-medium text-deep-brown mb-1">筛选条件 (模拟)</label>
+                                <select id="filter-select" class="w-full p-2 border border-gold rounded-md bg-white focus:ring-2 focus:ring-gold">
+                                    <option value="none">无筛选</option>
+                                    ${table.name === 'blog_posts' ? `<option value="frontend">分类: 前端</option><option value="backend">分类: 后端</option>` : ''}
+                                    ${table.name === 'blog_comments' ? `<option value="has_parent">仅看回复</option>` : ''}
+                                </select>
+                            </div>
+                            <div class="flex-1">
+                                <label class="block text-sm font-medium text-deep-brown mb-1">排序方式 (模拟)</label>
+                                <select id="sort-select" class="w-full p-2 border border-gold rounded-md bg-white focus:ring-2 focus:ring-gold">
+                                    <option value="desc">按创建时间降序</option>
+                                    ${table.name === 'blog_posts' ? `<option value="views">按阅读量降序</option>` : ''}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           <div class="chart-container relative h-80 w-full max-w-lg mx-auto">
+                                <canvas id="query-chart"></canvas>
+                           </div>
+                           <div>
+                                <h4 class="text-lg font-semibold text-deep-brown mb-2">模拟 API 响应 (JSON)</h4>
+                                <pre class="code-block h-80"><code id="json-output"></code></pre>
+                           </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            setupTabs();
+            setupCopyButtons(table);
+            setupQuerySimulator(table);
+        }
+        
+        function setupTabs() {
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const tabId = button.dataset.tab;
+
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+
+                    tabContents.forEach(content => {
+                        content.classList.remove('active');
+                        if (content.id === `tab-${tabId}`) {
+                            content.classList.add('active');
+                        }
+                    });
+                });
+            });
+        }
+        
+        function setupCopyButtons(table) {
+            document.querySelectorAll('.copy-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const type = btn.dataset.codeType;
+                    const textToCopy = type === 'mysql' ? table.mysql : table.sequelize;
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
+                        setTimeout(() => { btn.innerHTML = '<i class="far fa-copy"></i>'; }, 2000);
+                    });
+                });
+            });
+        }
+        
+        function setupQuerySimulator(table) {
+            const filterSelect = document.getElementById('filter-select');
+            const sortSelect = document.getElementById('sort-select');
+            const jsonOutput = document.getElementById('json-output');
+            const chartCanvas = document.getElementById('query-chart');
+
+            function updateSimulator() {
+                const filter = filterSelect.value;
+                const sort = sortSelect.value;
+                let mockData = [];
+
+                if (table.name === 'blog_posts') {
+                    mockData = [
+                        { id: 1, title: "React Hooks...", views: 1250, category: "frontend" },
+                        { id: 3, title: "微服务架构...", views: 1560, category: "architecture" },
+                        { id: 2, title: "MySQL 优化...", views: 890, category: "database" },
+                        { id: 4, title: "Node.js 事件...", views: 720, category: "backend" },
+                    ];
+                    if (filter !== 'none') {
+                        mockData = mockData.filter(d => d.category === filter);
+                    }
+                    if (sort === 'views') {
+                        mockData.sort((a, b) => b.views - a.views);
+                    }
+                } else if (table.name === 'blog_comments') {
+                     mockData = [
+                        { id: 1, author: "testuser", parent_id: null },
+                        { id: 2, author: "匿名用户", parent_id: 1 },
+                    ];
+                     if (filter === 'has_parent') {
+                        mockData = mockData.filter(d => d.parent_id !== null);
+                    }
+                } else {
+                    mockData = [{ id: 1, name: '示例标签1' }, { id: 2, name: '示例标签2' }];
+                }
+                
+                jsonOutput.textContent = JSON.stringify({
+                    query: { table: table.name, filter, sort, limit: 10 },
+                    results: mockData.slice(0, 4)
+                }, null, 2);
+
+                if (activeChart) {
+                    activeChart.destroy();
+                }
+
+                let chartLabels = mockData.map(d => (d.title || d.name || d.author || `ID: ${d.id}`).substring(0, 15) + '...');
+                let chartData = mockData.map(d => d.views || d.id || 0);
+                
+                if(chartData.every(v => v === 0)) {
+                    chartLabels = ['无可用数据'];
+                    chartData = [0];
+                }
+
+                activeChart = new Chart(chartCanvas.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: chartLabels,
+                        datasets: [{
+                            label: table.name === 'blog_posts' ? '阅读量' : 'ID',
+                            data: chartData,
+                            backgroundColor: '#DAA520',
+                            borderColor: '#4A2C2A',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            }
+
+            filterSelect.addEventListener('change', updateSimulator);
+            sortSelect.addEventListener('change', updateSimulator);
+
+            updateSimulator();
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const nav = document.getElementById('sidebar-nav');
+            schemaData.tables.forEach((table, index) => {
+                const item = document.createElement('button');
+                item.className = 'sidebar-item w-full text-left p-3 rounded-lg font-medium';
+                item.textContent = table.name;
+                item.dataset.table = table.name;
+                
+                item.addEventListener('click', () => {
+                    document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+                    item.classList.add('active');
+                    renderContent(table.name);
+                });
+
+                nav.appendChild(item);
+                if (index === 0) { // Automatically select the first item on load
+                    // item.click(); // Optional: uncomment to load first table by default
+                }
+            });
+        });
+    </script>
+</body>
+</html>
